@@ -1,0 +1,993 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Math Runner: 恒等式與因式分解大逃亡</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js for 3D Game Graphics -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700;900&family=Noto+Sans+TC:wght@400;700;900&display=swap');
+        
+        body {
+            font-family: 'Noto Sans TC', 'Chakra Petch', sans-serif;
+            user-select: none;
+            overflow: hidden;
+            background-color: #090d16;
+        }
+
+        #game-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1;
+        }
+
+        .hud-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        .interactive-ui {
+            pointer-events: auto;
+        }
+
+        /* Glassmorphic UI Card */
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.82);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+        }
+
+        .pulse-danger {
+            animation: pulse-red 1.2s infinite;
+        }
+
+        @keyframes pulse-red {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.6); }
+            50% { box-shadow: 0 0 25px 8px rgba(239, 68, 68, 0.8); }
+        }
+
+        /* Speedometer / Distance bar */
+        .distance-track {
+            background: linear-gradient(90deg, #ef4444 0%, #f59e0b 50%, #10b981 100%);
+        }
+
+        sup {
+            font-size: 0.7em;
+            vertical-align: super;
+        }
+
+        /* Custom choice button animations */
+        .choice-btn {
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .choice-btn:hover {
+            transform: translateY(-3px) scale(1.02);
+        }
+
+        .choice-btn:active {
+            transform: translateY(1px) scale(0.98);
+        }
+
+        /* Screen Shake effect */
+        .shake {
+            animation: shake-anim 0.4s cubic-bezier(.36,.07,.19,.97) both;
+        }
+
+        @keyframes shake-anim {
+            10%, 90% { transform: translate3d(-2px, 0, 0); }
+            20%, 80% { transform: translate3d(4px, 0, 0); }
+            30%, 50%, 70% { transform: translate3d(-6px, 0, 0); }
+            40%, 60% { transform: translate3d(6px, 0, 0); }
+        }
+    </style>
+</head>
+<body class="text-white select-none">
+
+    <!-- 3D WebGL Canvas Container -->
+    <div id="game-canvas"></div>
+
+    <!-- HUD Overlay Layer -->
+    <div class="hud-overlay flex flex-col justify-between p-3 md:p-5">
+        
+        <!-- Top Stats Header -->
+        <div class="flex justify-between items-center w-full max-w-5xl mx-auto interactive-ui gap-3">
+            
+            <!-- Score, Distance & Combo -->
+            <div class="glass-panel rounded-2xl px-4 py-2 flex items-center gap-4 border-l-4 border-cyan-400">
+                <div>
+                    <div class="text-[10px] text-cyan-300 font-bold uppercase tracking-wider">分數 SCORE</div>
+                    <div id="score-text" class="text-xl md:text-2xl font-extrabold text-white">0</div>
+                </div>
+                <div class="h-7 w-px bg-slate-700"></div>
+                <div>
+                    <div class="text-[10px] text-emerald-400 font-bold uppercase tracking-wider">距離 RUN</div>
+                    <div id="distance-text" class="text-xl md:text-2xl font-extrabold text-white">0m</div>
+                </div>
+                <div class="h-7 w-px bg-slate-700"></div>
+                <div>
+                    <div class="text-[10px] text-amber-400 font-bold uppercase tracking-wider">連勝 COMBO</div>
+                    <div id="combo-text" class="text-xl md:text-2xl font-extrabold text-amber-300">x0</div>
+                </div>
+            </div>
+
+            <!-- Ninja Lives (Hearts) -->
+            <div class="glass-panel rounded-2xl px-4 py-2 flex items-center gap-2 border-y border-rose-500/40">
+                <div class="text-[10px] text-rose-400 font-bold uppercase tracking-wider hidden sm:block mr-1">忍耐力 LIVES</div>
+                <div id="hearts-container" class="flex gap-1 text-rose-500 text-xl md:text-2xl drop-shadow-[0_0_8px_rgba(244,63,94,0.6)]">
+                    <i class="fa-solid fa-heart"></i>
+                    <i class="fa-solid fa-heart"></i>
+                    <i class="fa-solid fa-heart"></i>
+                    <i class="fa-solid fa-heart"></i>
+                    <i class="fa-solid fa-heart"></i>
+                </div>
+            </div>
+
+            <!-- Mute Toggle -->
+            <button id="sound-btn" class="glass-panel p-2.5 rounded-2xl text-slate-200 hover:text-white hover:bg-slate-800/80 transition-all">
+                <i class="fa-solid fa-volume-high text-lg"></i>
+            </button>
+        </div>
+
+        <!-- Compact Top Question Banner HUD (Shifted Up so road is 100% visible) -->
+        <div id="question-card-container" class="w-full max-w-2xl mx-auto my-1 interactive-ui transition-all duration-300">
+            <div id="question-card" class="glass-panel rounded-2xl px-4 py-2 border border-cyan-500/40 shadow-xl relative overflow-hidden bg-slate-950/80">
+                
+                <!-- Countdown Timer Bar -->
+                <div class="absolute top-0 left-0 w-full bg-slate-800 h-1.5">
+                    <div id="timer-bar" class="bg-gradient-to-r from-cyan-400 to-emerald-400 h-full transition-all duration-100" style="width: 100%;"></div>
+                </div>
+
+                <div class="flex justify-between items-center text-xs">
+                    <span id="topic-tag" class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-cyan-950/90 text-cyan-300 border border-cyan-700/50">
+                        中二數學：恆等式與因式分解
+                    </span>
+                    <span id="timer-text" class="font-mono font-bold text-amber-400 text-xs"><i class="fa-regular fa-clock"></i> 10.0s</span>
+                </div>
+
+                <!-- Math Question Title -->
+                <div class="text-center mt-1">
+                    <h2 id="question-text" class="text-lg md:text-2xl font-black text-amber-300 tracking-wide drop-shadow-md">
+                        (x + 4)(x - 4) = ?
+                    </h2>
+                </div>
+            </div>
+        </div>
+
+        <!-- Mobile Touch Lane Switch Controls -->
+        <div class="flex justify-between items-center w-full max-w-md mx-auto interactive-ui px-2 mb-1">
+            <button id="btn-move-left" class="glass-panel w-16 h-16 rounded-full bg-cyan-950/80 hover:bg-cyan-600/40 border border-cyan-400/50 flex items-center justify-center active:scale-90 transition-all text-cyan-300 text-2xl shadow-lg">
+                <i class="fa-solid fa-chevron-left"></i>
+            </button>
+            <div class="text-center text-[11px] font-mono text-cyan-300/80 bg-slate-900/80 px-3 py-1.5 rounded-full border border-slate-700">
+                <kbd class="px-1 bg-slate-800 rounded border border-slate-600 text-cyan-300">←</kbd> <kbd class="px-1 bg-slate-800 rounded border border-slate-600 text-cyan-300">→</kbd> 或 <kbd class="px-1 bg-slate-800 rounded border border-slate-600 text-cyan-300">A</kbd> <kbd class="px-1 bg-slate-800 rounded border border-slate-600 text-cyan-300">D</kbd> 切換跑道
+            </div>
+            <button id="btn-move-right" class="glass-panel w-16 h-16 rounded-full bg-cyan-950/80 hover:bg-cyan-600/40 border border-cyan-400/50 flex items-center justify-center active:scale-90 transition-all text-cyan-300 text-2xl shadow-lg">
+                <i class="fa-solid fa-chevron-right"></i>
+            </button>
+        </div>
+
+        <!-- Footer / Credits -->
+        <div class="text-center text-xs text-slate-500 font-medium pb-1">
+             Junior Secondary Mathematics in Action - Chapter 2 Identities & Factorization
+        </div>
+    </div>
+
+    <!-- Start / Intro Screen Overlay -->
+    <div id="start-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md">
+        <div class="glass-panel max-w-xl w-full rounded-3xl p-8 border border-cyan-500/40 text-center relative overflow-hidden shadow-2xl">
+            <div class="w-20 h-20 bg-gradient-to-tr from-cyan-500 to-blue-600 rounded-3xl mx-auto mb-6 flex items-center justify-center shadow-lg shadow-cyan-500/30 transform -rotate-6">
+                <i class="fa-solid fa-person-running text-4xl text-white"></i>
+            </div>
+
+            <h1 class="text-3xl md:text-4xl font-black text-white tracking-wider mb-2">
+                恒等式與因式分解<br><span class="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-teal-300 to-emerald-400">極速挑戰賽</span>
+            </h1>
+            <p class="text-slate-300 text-sm md:text-base mb-6 leading-relaxed">
+                控制主角左右移動（左/右方向鍵、A/D 或屏幕按鈕），選擇並穿過道路上正確的答案閘門！
+            </p>
+
+            <div class="grid grid-cols-3 gap-3 text-left mb-8 bg-slate-900/60 p-4 rounded-2xl border border-slate-800 text-xs">
+                <div class="flex flex-col items-center text-center">
+                    <i class="fa-solid fa-bolt text-amber-400 text-xl mb-1"></i>
+                    <span class="font-bold text-white">忍者衝刺</span>
+                    <span class="text-slate-400 scale-90">左右變道選擇答案</span>
+                </div>
+                <div class="flex flex-col items-center text-center border-x border-slate-800 px-2">
+                    <i class="fa-solid fa-door-open text-emerald-400 text-xl mb-1"></i>
+                    <span class="font-bold text-white">穿過閘門</span>
+                    <span class="text-slate-400 scale-90">答對累積高分與連勝</span>
+                </div>
+                <div class="flex flex-col items-center text-center">
+                    <i class="fa-solid fa-heart text-rose-500 text-xl mb-1"></i>
+                    <span class="font-bold text-white">5 次生命</span>
+                    <span class="text-slate-400 scale-90">答錯扣心，保持冷靜</span>
+                </div>
+            </div>
+
+            <button id="start-game-btn" class="interactive-ui w-full py-4 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-red-500 text-slate-950 font-black text-xl hover:brightness-110 shadow-lg shadow-orange-500/30 transition-all transform hover:scale-[1.02] active:scale-[0.98]">
+                <i class="fa-solid fa-play mr-2"></i> 開始挑戰 START
+            </button>
+        </div>
+    </div>
+
+    <!-- Game Over Screen Overlay -->
+    <div id="gameover-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/95 backdrop-blur-lg hidden">
+        <div class="glass-panel max-w-lg w-full rounded-3xl p-8 border border-red-500/40 text-center relative overflow-hidden shadow-2xl">
+            <div class="w-20 h-20 bg-gradient-to-tr from-rose-600 to-amber-600 rounded-3xl mx-auto mb-6 flex items-center justify-center shadow-lg shadow-rose-500/30">
+                <i class="fa-solid fa-flag-checkered text-4xl text-white"></i>
+            </div>
+
+            <h2 class="text-3xl font-black text-white mb-1">挑戰結束！</h2>
+            <p class="text-slate-400 text-sm mb-6">保持冷靜，熟記公式就能獲得更高的分數！</p>
+
+            <div class="grid grid-cols-2 gap-4 mb-6">
+                <div class="bg-slate-900/80 p-4 rounded-2xl border border-slate-800">
+                    <div class="text-xs text-slate-400 font-bold mb-1">最終距離</div>
+                    <div id="final-dist" class="text-2xl font-black text-emerald-400">0m</div>
+                </div>
+                <div class="bg-slate-900/80 p-4 rounded-2xl border border-slate-800">
+                    <div class="text-xs text-slate-400 font-bold mb-1">最終得分</div>
+                    <div id="final-score" class="text-2xl font-black text-cyan-400">0</div>
+                </div>
+                <div class="bg-slate-900/80 p-4 rounded-2xl border border-slate-800">
+                    <div class="text-xs text-slate-400 font-bold mb-1">答對題數</div>
+                    <div id="final-correct" class="text-2xl font-black text-amber-400">0 / 0</div>
+                </div>
+                <div class="bg-slate-900/80 p-4 rounded-2xl border border-slate-800">
+                    <div class="text-xs text-slate-400 font-bold mb-1">正確率</div>
+                    <div id="final-accuracy" class="text-2xl font-black text-indigo-400">0%</div>
+                </div>
+            </div>
+
+            <button id="restart-game-btn" class="interactive-ui w-full py-4 rounded-2xl bg-gradient-to-r from-red-500 via-amber-500 to-yellow-500 text-slate-950 font-black text-xl hover:brightness-110 shadow-lg shadow-red-500/30 transition-all transform hover:scale-[1.02] active:scale-[0.98]">
+                <i class="fa-solid fa-rotate-right mr-2"></i> 再試一次 TRY AGAIN
+            </button>
+        </div>
+    </div>
+
+    <!-- JavaScript Game Engine Code -->
+    <script>
+        // Sound FX Engine using Web Audio API
+        class AudioEngine {
+            constructor() {
+                this.ctx = null;
+                this.muted = false;
+            }
+
+            init() {
+                if (!this.ctx) {
+                    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+            }
+
+            playCorrect() {
+                if (this.muted || !this.ctx) return;
+                const now = this.ctx.currentTime;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(523.25, now); // C5
+                osc.frequency.exponentialRampToValueAtTime(1046.50, now + 0.2); // C6
+                gain.gain.setValueAtTime(0.2, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start(now);
+                osc.stop(now + 0.3);
+            }
+
+            playWrong() {
+                if (this.muted || !this.ctx) return;
+                const now = this.ctx.currentTime;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(180, now);
+                osc.frequency.exponentialRampToValueAtTime(70, now + 0.3);
+                gain.gain.setValueAtTime(0.3, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start(now);
+                osc.stop(now + 0.35);
+            }
+        }
+
+        const audio = new AudioEngine();
+
+        // Question Generator based on Chapter 2 (Identities and Factorization)
+        class MathQuestionGenerator {
+            constructor() {
+                this.variables = ['x', 'y', 'a', 'b', 'm', 'n'];
+            }
+
+            getRandomInt(min, max) {
+                return Math.floor(Math.random() * (max - min + 1)) + min;
+            }
+
+            getRandomVar() {
+                return this.variables[Math.floor(Math.random() * this.variables.length)];
+            }
+
+            generate() {
+                const types = [
+                    'diff_squares',        // (x + a)(x - a) = x^2 - a^2
+                    'perfect_square_plus', // (x + a)^2 = x^2 + 2ax + a^2
+                    'perfect_square_minus',// (x - a)^2 = x^2 - 2ax + a^2
+                    'identity_constant',   // In A(x+b) ≡ Cx + D, find constant
+                    'factorization_common' // 6x - 12y = 6(x - 2y)
+                ];
+
+                const type = types[Math.floor(Math.random() * types.length)];
+                switch (type) {
+                    case 'diff_squares':
+                        return this.genDiffSquares();
+                    case 'perfect_square_plus':
+                        return this.genPerfectSquare(true);
+                    case 'perfect_square_minus':
+                        return this.genPerfectSquare(false);
+                    case 'identity_constant':
+                        return this.genIdentityConstant();
+                    case 'factorization_common':
+                        return this.genFactorization();
+                    default:
+                        return this.genDiffSquares();
+                }
+            }
+
+            genDiffSquares() {
+                const v = this.getRandomVar();
+                const a = this.getRandomInt(2, 9);
+                const qText = `(${v} + ${a})(${v} - ${a}) = ?`;
+                const correct = `${v}² - ${a * a}`;
+                
+                const wrong1 = `${v}² + ${a * a}`;
+                const wrong2 = `${v}² - ${2 * a}${v} - ${a * a}`;
+
+                return this.formatQuestion("平方差 (Difference of Two Squares)", qText, correct, [wrong1, wrong2]);
+            }
+
+            genPerfectSquare(isPlus) {
+                const v = this.getRandomVar();
+                const a = this.getRandomInt(2, 8);
+                const op = isPlus ? '+' : '-';
+                const middleOp = isPlus ? '+' : '-';
+                const qText = `(${v} ${op} ${a})² = ?`;
+                
+                const correct = `${v}² ${middleOp} ${2 * a}${v} + ${a * a}`;
+                const wrong1 = `${v}² ${op} ${a * a}`;
+                const wrong2 = `${v}² ${middleOp} ${a}${v} + ${a * a}`;
+
+                return this.formatQuestion("完全平方 (Perfect Square)", qText, correct, [wrong1, wrong2]);
+            }
+
+            genIdentityConstant() {
+                const v = 'x';
+                const k = this.getRandomInt(2, 5);
+                const b = this.getRandomInt(2, 7);
+                const lhs = `${k}(${v} - ${b})`;
+                const rhs = `Ax + B`;
+                
+                const qText = `若 ${lhs} ≡ ${rhs}，求 A 及 B`;
+                const correct = `A = ${k}, B = -${k * b}`;
+                const wrong1 = `A = ${k}, B = ${k * b}`;
+                const wrong2 = `A = ${k}, B = -${b}`;
+
+                return this.formatQuestion("恒等式未知數 (Identity Constants)", qText, correct, [wrong1, wrong2]);
+            }
+
+            genFactorization() {
+                const k = this.getRandomInt(3, 8);
+                const a = this.getRandomInt(1, 4);
+                const b = this.getRandomInt(2, 5);
+                
+                const qText = `因式分解 (Factorize): ${k * a}x - ${k * b}y`;
+                const correct = `${k}(${a === 1 ? '' : a}x - ${b}y)`;
+                const wrong1 = `${k}(${a === 1 ? '' : a}x + ${b}y)`;
+                const wrong2 = `${k * a}(x - ${b}y)`;
+
+                return this.formatQuestion("提取公因式 (Common Factor Factorization)", qText, correct, [wrong1, wrong2]);
+            }
+
+            formatQuestion(tag, qText, correct, wrongArr) {
+                const options = [
+                    { text: correct, isCorrect: true },
+                    { text: wrongArr[0], isCorrect: false },
+                    { text: wrongArr[1], isCorrect: false }
+                ];
+                // Shuffle options
+                for (let i = options.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [options[i], options[j]] = [options[j], options[i]];
+                }
+
+                return { tag, question: qText, options };
+            }
+        }
+
+        // Three.js Game Scene Setup
+        class Runner3D {
+            constructor(container) {
+                this.container = container;
+                this.scene = new THREE.Scene();
+                this.scene.fog = new THREE.FogExp2(0x090d16, 0.02);
+
+                this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+                this.renderer = new THREE.WebGLRenderer({ antialias: true });
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+                this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+                this.renderer.shadowMap.enabled = true;
+                this.container.appendChild(this.renderer.domElement);
+
+                this.clock = new THREE.Clock();
+
+                // Lane positions: Left (-2.8), Center (0), Right (2.8)
+                this.lanePositions = [-2.8, 0, 2.8];
+                this.currentLane = 1; // Start in middle lane
+                this.targetX = this.lanePositions[1];
+
+                this.initLights();
+                this.initRoad();
+                this.initNarutoCharacter();
+                this.initAnswerGates();
+
+                // High & Unobstructed Camera View down the track
+                this.camera.position.set(0, 4.2, 5.8);
+                this.camera.lookAt(0, 1.2, -15);
+
+                window.addEventListener('resize', () => this.onWindowResize());
+            }
+
+            initLights() {
+                const ambient = new THREE.AmbientLight(0xffffff, 0.8);
+                this.scene.add(ambient);
+
+                const dirLight = new THREE.DirectionalLight(0xf97316, 1.2);
+                dirLight.position.set(5, 14, 8);
+                dirLight.castShadow = true;
+                this.scene.add(dirLight);
+            }
+
+            initRoad() {
+                // Moving Road Grid & Neon Strips
+                const roadGeo = new THREE.PlaneGeometry(12, 200, 10, 100);
+                const roadMat = new THREE.MeshStandardMaterial({
+                    color: 0x0f172a,
+                    roughness: 0.4,
+                    metalness: 0.8
+                });
+                this.road = new THREE.Mesh(roadGeo, roadMat);
+                this.road.rotation.x = -Math.PI / 2;
+                this.road.position.z = -80;
+                this.scene.add(this.road);
+
+                // Grid Lines for 3 Lanes
+                const grid = new THREE.GridHelper(200, 40, 0xf97316, 0x1e293b);
+                grid.position.y = 0.01;
+                grid.position.z = -80;
+                this.scene.add(grid);
+                this.grid = grid;
+
+                // Side glowing ninja arches
+                this.arches = [];
+                for (let i = 0; i < 10; i++) {
+                    const archGeo = new THREE.TorusGeometry(6, 0.1, 8, 24, Math.PI);
+                    const archMat = new THREE.MeshBasicMaterial({ color: 0xeab308 });
+                    const arch = new THREE.Mesh(archGeo, archMat);
+                    arch.position.set(0, 0, -i * 20);
+                    this.scene.add(arch);
+                    this.arches.push(arch);
+                }
+            }
+
+            initAnswerGates() {
+                this.gatesGroup = new THREE.Group();
+                this.gateCanvases = [];
+                this.gateTextures = [];
+                this.gatePanels = [];
+
+                // 3 Gates for Left, Middle, Right lanes
+                for (let i = 0; i < 3; i++) {
+                    const singleGate = new THREE.Group();
+                    singleGate.position.x = this.lanePositions[i];
+
+                    // Outer Arch Frame
+                    const frameMat = new THREE.MeshStandardMaterial({ color: 0xf97316, metalness: 0.8, roughness: 0.2 });
+                    const frameLeft = new THREE.Mesh(new THREE.BoxGeometry(0.2, 3.4, 0.2), frameMat);
+                    frameLeft.position.set(-1.25, 1.7, 0);
+                    const frameRight = new THREE.Mesh(new THREE.BoxGeometry(0.2, 3.4, 0.2), frameMat);
+                    frameRight.position.set(1.25, 1.7, 0);
+                    const frameTop = new THREE.Mesh(new THREE.BoxGeometry(2.7, 0.2, 0.2), frameMat);
+                    frameTop.position.set(0, 3.4, 0);
+
+                    singleGate.add(frameLeft, frameRight, frameTop);
+
+                    // Dynamic Canvas Texture for Option Text
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 512;
+                    canvas.height = 256;
+                    const texture = new THREE.CanvasTexture(canvas);
+
+                    const panelMat = new THREE.MeshBasicMaterial({
+                        map: texture,
+                        transparent: true,
+                        side: THREE.DoubleSide
+                    });
+
+                    const panelMesh = new THREE.Mesh(new THREE.PlaneGeometry(2.3, 2.6), panelMat);
+                    panelMesh.position.set(0, 1.7, 0);
+
+                    singleGate.add(panelMesh);
+
+                    this.gateCanvases.push(canvas);
+                    this.gateTextures.push(texture);
+                    this.gatePanels.push(panelMesh);
+                    this.gatesGroup.add(singleGate);
+                }
+
+                // Initial Z position far down the track
+                this.gatesGroup.position.z = -60;
+                this.scene.add(this.gatesGroup);
+            }
+
+            updateGateTexts(options) {
+                options.forEach((opt, idx) => {
+                    const canvas = this.gateCanvases[idx];
+                    const ctx = canvas.getContext('2d');
+
+                    // Clear Canvas
+                    ctx.clearRect(0, 0, 512, 256);
+
+                    // Glassmorphic Panel Background
+                    ctx.fillStyle = 'rgba(15, 23, 42, 0.94)';
+                    ctx.beginPath();
+                    ctx.roundRect(10, 10, 492, 236, 24);
+                    ctx.fill();
+
+                    // Glowing Orange Border
+                    ctx.strokeStyle = '#f97316';
+                    ctx.lineWidth = 10;
+                    ctx.beginPath();
+                    ctx.roundRect(10, 10, 492, 236, 24);
+                    ctx.stroke();
+
+                    // Option Number Badge
+                    ctx.fillStyle = '#eab308';
+                    ctx.beginPath();
+                    ctx.arc(60, 60, 30, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    ctx.fillStyle = '#0f172a';
+                    ctx.font = 'bold 36px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(`${idx + 1}`, 60, 60);
+
+                    // Option Answer Text
+                    ctx.fillStyle = '#f8fafc';
+                    ctx.font = 'bold 46px "Noto Sans TC", sans-serif';
+                    ctx.fillText(opt.text, 260, 130);
+
+                    this.gateTextures[idx].needsUpdate = true;
+                });
+            }
+
+            moveLane(direction) {
+                this.currentLane = Math.max(0, Math.min(2, this.currentLane + direction));
+                this.targetX = this.lanePositions[this.currentLane];
+            }
+
+            resetGates() {
+                this.gatesGroup.position.z = -60;
+            }
+
+            initNarutoCharacter() {
+                // Naruto Hero Group
+                this.playerGroup = new THREE.Group();
+
+                // Master upper body tilted forward for iconic NARUTO RUN stance (~40 degrees)
+                this.ninjaBodyGroup = new THREE.Group();
+                this.ninjaBodyGroup.rotation.x = 0.65; // Forward lean!
+                this.ninjaBodyGroup.position.set(0, 1.1, 0);
+
+                // Orange Jumpsuit Torso with Black Collar
+                const torsoMat = new THREE.MeshStandardMaterial({ color: 0xf97316, roughness: 0.3 }); // Orange
+                const torso = new THREE.Mesh(new THREE.BoxGeometry(0.65, 0.85, 0.38), torsoMat);
+                torso.position.y = 0.2;
+                torso.castShadow = true;
+                this.ninjaBodyGroup.add(torso);
+
+                const collarMat = new THREE.MeshStandardMaterial({ color: 0x1e293b });
+                const collar = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.2, 0.4), collarMat);
+                collar.position.y = 0.55;
+                this.ninjaBodyGroup.add(collar);
+
+                // Head with Spiky Blonde Hair & Leaf Headband
+                this.headGroup = new THREE.Group();
+                this.headGroup.position.set(0, 0.8, 0.05);
+
+                const skinMat = new THREE.MeshStandardMaterial({ color: 0xfde047 }); // Skin / glow tint
+                const headMesh = new THREE.Mesh(new THREE.SphereGeometry(0.28, 16, 16), skinMat);
+                this.headGroup.add(headMesh);
+
+                // Blonde Spiky Hair
+                const hairMat = new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.2 });
+                for (let i = 0; i < 7; i++) {
+                    const spike = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.3, 5), hairMat);
+                    const angle = (i / 7) * Math.PI * 2;
+                    spike.position.set(Math.cos(angle) * 0.18, 0.22, Math.sin(angle) * 0.18);
+                    spike.rotation.x = Math.sin(angle) * 0.4;
+                    spike.rotation.z = -Math.cos(angle) * 0.4;
+                    this.headGroup.add(spike);
+                }
+
+                // Ninja Headband (Blue Fabric + Metallic Leaf Plate)
+                const bandMat = new THREE.MeshStandardMaterial({ color: 0x1d4ed8 });
+                const headband = new THREE.Mesh(new THREE.CylinderGeometry(0.29, 0.29, 0.1, 16), bandMat);
+                headband.position.y = 0.08;
+                this.headGroup.add(headband);
+
+                const metalMat = new THREE.MeshStandardMaterial({ color: 0xcbd5e1, metalness: 0.9, roughness: 0.1 });
+                const plate = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.08, 0.05), metalMat);
+                plate.position.set(0, 0.08, 0.27);
+                this.headGroup.add(plate);
+
+                // Head counter-rotated slightly so Naruto faces straight forward while running
+                this.headGroup.rotation.x = -0.3;
+                this.ninjaBodyGroup.add(this.headGroup);
+
+                // ARMS: Pinned Straight Backwards (NARUTO RUN POSES)
+                const armMat = new THREE.MeshStandardMaterial({ color: 0xf97316 });
+                
+                this.leftArm = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.75, 0.18), armMat);
+                this.leftArm.position.set(-0.45, 0.2, -0.3);
+                this.leftArm.rotation.x = 1.2; // Angle backwards
+                this.leftArm.rotation.z = -0.15;
+                this.ninjaBodyGroup.add(this.leftArm);
+
+                this.rightArm = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.75, 0.18), armMat);
+                this.rightArm.position.set(0.45, 0.2, -0.3);
+                this.rightArm.rotation.x = 1.2; // Angle backwards
+                this.rightArm.rotation.z = 0.15;
+                this.ninjaBodyGroup.add(this.rightArm);
+
+                this.playerGroup.add(this.ninjaBodyGroup);
+
+                // LEGS (Attached directly to lower body for running cycle)
+                const legMat = new THREE.MeshStandardMaterial({ color: 0x1e293b }); // Dark Ninja Pants
+                
+                this.leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.8, 0.22), legMat);
+                this.leftLeg.position.set(-0.2, 0.4, 0);
+                this.playerGroup.add(this.leftLeg);
+
+                this.rightLeg = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.8, 0.22), legMat);
+                this.rightLeg.position.set(0.2, 0.4, 0);
+                this.playerGroup.add(this.rightLeg);
+
+                this.scene.add(this.playerGroup);
+            }
+
+            update(delta, runSpeed) {
+                const time = this.clock.getElapsedTime();
+
+                // Smooth player X movement (Lane switching)
+                this.playerGroup.position.x += (this.targetX - this.playerGroup.position.x) * 0.22;
+                
+                // Slight ninja body roll/tilt when switching lanes
+                const laneDiff = this.targetX - this.playerGroup.position.x;
+                this.playerGroup.rotation.z = -laneDiff * 0.18;
+
+                // Move road textures/grid to simulate endless speed
+                this.grid.position.z += runSpeed * delta;
+                if (this.grid.position.z > 0) this.grid.position.z = -10;
+
+                // Move arches
+                this.arches.forEach(arch => {
+                    arch.position.z += runSpeed * delta;
+                    if (arch.position.z > 5) arch.position.z -= 200;
+                });
+
+                // Move Answer Gates towards player
+                this.gatesGroup.position.z += runSpeed * delta;
+
+                // NARUTO RUN ANIMATION LOGIC:
+                const runFreq = runSpeed * 1.5;
+                this.leftArm.rotation.x = 1.25 + Math.sin(time * runFreq * 0.5) * 0.08;
+                this.rightArm.rotation.x = 1.25 - Math.sin(time * runFreq * 0.5) * 0.08;
+
+                // Legs kick rapidly back and forth
+                this.leftLeg.rotation.x = Math.sin(time * runFreq) * 1.1;
+                this.rightLeg.rotation.x = -Math.sin(time * runFreq) * 1.1;
+
+                // Ninja slight bounding bounce
+                this.playerGroup.position.y = Math.abs(Math.sin(time * runFreq)) * 0.12;
+
+                // Render Scene
+                this.renderer.render(this.scene, this.camera);
+
+                // Trigger gate collision when gate reaches player plane
+                if (this.gatesGroup.position.z >= 0) {
+                    return true;
+                }
+                return false;
+            }
+
+            triggerStumble() {
+                const origY = this.camera.position.y;
+                this.camera.position.y -= 0.35;
+                setTimeout(() => {
+                    this.camera.position.y = origY;
+                }, 180);
+            }
+
+            onWindowResize() {
+                this.camera.aspect = window.innerWidth / window.innerHeight;
+                this.camera.updateProjectionMatrix();
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+            }
+        }
+
+        // Game Logic Manager
+        class MathRunnerGame {
+            constructor() {
+                this.generator = new MathQuestionGenerator();
+                this.runner3D = null;
+
+                // Game State
+                this.isPlaying = false;
+                this.score = 0;
+                this.distance = 0;
+                this.combo = 0;
+                this.lives = 5; // 5 Ninja Hearts!
+                this.maxLives = 5;
+                
+                // Slower baseline speed & longer timer (adds ~3s of thinking time)
+                this.playerSpeed = 10.0;
+                this.correctCount = 0;
+                this.totalQuestions = 0;
+
+                // Current Question State
+                this.timerMax = 13.0; // Extended timer from 10s to 13s
+                this.timerCurrent = 13.0;
+
+                this.initUI();
+            }
+
+            initUI() {
+                // Start Game
+                document.getElementById('start-game-btn').addEventListener('click', () => {
+                    audio.init();
+                    document.getElementById('start-modal').classList.add('hidden');
+                    this.startGame();
+                });
+
+                // Restart Game
+                document.getElementById('restart-game-btn').addEventListener('click', () => {
+                    document.getElementById('gameover-modal').classList.add('hidden');
+                    this.startGame();
+                });
+
+                // Mobile Touch Controls
+                document.getElementById('btn-move-left').addEventListener('click', () => {
+                    if (this.runner3D) this.runner3D.moveLane(-1);
+                });
+                document.getElementById('btn-move-right').addEventListener('click', () => {
+                    if (this.runner3D) this.runner3D.moveLane(1);
+                });
+
+                // Keyboard Controls
+                window.addEventListener('keydown', (e) => {
+                    if (!this.isPlaying || !this.runner3D) return;
+                    if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') {
+                        this.runner3D.moveLane(-1);
+                    }
+                    if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') {
+                        this.runner3D.moveLane(1);
+                    }
+                });
+
+                // Touch Swipe Controls
+                let touchStartX = 0;
+                window.addEventListener('touchstart', (e) => {
+                    touchStartX = e.touches[0].clientX;
+                });
+                window.addEventListener('touchend', (e) => {
+                    if (!this.isPlaying || !this.runner3D) return;
+                    const touchEndX = e.changedTouches[0].clientX;
+                    const diffX = touchEndX - touchStartX;
+                    if (Math.abs(diffX) > 30) {
+                        if (diffX < 0) this.runner3D.moveLane(-1);
+                        else this.runner3D.moveLane(1);
+                    }
+                });
+
+                // Sound Toggle
+                document.getElementById('sound-btn').addEventListener('click', () => {
+                    audio.muted = !audio.muted;
+                    const icon = document.querySelector('#sound-btn i');
+                    icon.className = audio.muted ? 'fa-solid fa-volume-xmark text-lg text-red-400' : 'fa-solid fa-volume-high text-lg';
+                });
+            }
+
+            startGame() {
+                if (!this.runner3D) {
+                    this.runner3D = new Runner3D(document.getElementById('game-canvas'));
+                }
+
+                // Reset Variables
+                this.isPlaying = true;
+                this.score = 0;
+                this.distance = 0;
+                this.combo = 0;
+                this.lives = 5; // Reset 5 Lives
+                this.playerSpeed = 10.0; // Slower start speed for comfortable reaction time
+                this.correctCount = 0;
+                this.totalQuestions = 0;
+
+                this.updateHUD();
+                this.nextQuestion();
+
+                this.lastTime = performance.now();
+                requestAnimationFrame((t) => this.loop(t));
+            }
+
+            nextQuestion() {
+                this.currentQuestion = this.generator.generate();
+                this.timerCurrent = this.timerMax;
+
+                // Render UI Question Text on top banner
+                document.getElementById('topic-tag').innerText = this.currentQuestion.tag;
+                document.getElementById('question-text').innerText = this.currentQuestion.question;
+
+                // Update 3D Answer Gates Textures
+                if (this.runner3D) {
+                    this.runner3D.updateGateTexts(this.currentQuestion.options);
+                    this.runner3D.resetGates();
+                }
+
+                // Reset Question Card Visual
+                const card = document.getElementById('question-card');
+                card.classList.remove('border-red-500', 'border-emerald-500');
+                card.classList.add('border-cyan-500/40');
+            }
+
+            handleAnswer(selectedIdx) {
+                if (!this.isPlaying) return;
+
+                const selected = (selectedIdx >= 0 && selectedIdx < 3) ? this.currentQuestion.options[selectedIdx] : null;
+                this.totalQuestions++;
+
+                if (selected && selected.isCorrect) {
+                    // CORRECT ANSWER
+                    audio.playCorrect();
+                    this.combo++;
+                    this.correctCount++;
+                    
+                    // Rewards
+                    const points = 100 + (this.combo * 20);
+                    this.score += points;
+                    this.playerSpeed = Math.min(16.0, this.playerSpeed + 0.4);
+
+                    this.flashCard('border-emerald-500');
+
+                } else {
+                    // WRONG ANSWER / TIMEOUT
+                    audio.playWrong();
+                    this.combo = 0;
+                    this.lives--; // Lose 1 Heart Life
+                    this.playerSpeed = Math.max(8.0, this.playerSpeed - 0.8);
+
+                    this.runner3D.triggerStumble();
+                    document.body.classList.add('shake');
+                    setTimeout(() => document.body.classList.remove('shake'), 400);
+
+                    this.flashCard('border-red-500');
+                }
+
+                this.updateHUD();
+
+                // Game Over if Lives depleted
+                if (this.lives <= 0) {
+                    this.gameOver();
+                } else {
+                    this.nextQuestion();
+                }
+            }
+
+            flashCard(borderColorClass) {
+                const card = document.getElementById('question-card');
+                card.classList.remove('border-cyan-500/40');
+                card.classList.add(borderColorClass);
+            }
+
+            updateHUD() {
+                document.getElementById('score-text').innerText = this.score;
+                document.getElementById('distance-text').innerText = `${Math.floor(this.distance)}m`;
+                document.getElementById('combo-text').innerText = `x${this.combo}`;
+                
+                // Update Hearts (Lives) UI
+                const heartsContainer = document.getElementById('hearts-container');
+                let heartsHtml = '';
+                for (let i = 0; i < this.maxLives; i++) {
+                    if (i < this.lives) {
+                        heartsHtml += '<i class="fa-solid fa-heart"></i>';
+                    } else {
+                        heartsHtml += '<i class="fa-regular fa-heart opacity-30 text-slate-400"></i>';
+                    }
+                }
+                heartsContainer.innerHTML = heartsHtml;
+            }
+
+            loop(now) {
+                if (!this.isPlaying) return;
+
+                const delta = (now - this.lastTime) / 1000;
+                this.lastTime = now;
+
+                // Update Distance
+                this.distance += this.playerSpeed * delta;
+
+                // Update Question Timer
+                this.timerCurrent -= delta;
+                const timerPct = Math.max(0, (this.timerCurrent / this.timerMax) * 100);
+                document.getElementById('timer-bar').style.width = `${timerPct}%`;
+                document.getElementById('timer-text').innerHTML = `<i class="fa-regular fa-clock"></i> ${Math.max(0, this.timerCurrent).toFixed(1)}s`;
+
+                // Timeout handled as wrong answer
+                if (this.timerCurrent <= 0) {
+                    this.handleAnswer(-1);
+                }
+
+                // Check lives depletion
+                if (this.lives <= 0) {
+                    this.gameOver();
+                    return;
+                }
+
+                this.updateHUD();
+
+                // Update 3D Canvas Scene & check gate collision
+                const reachedGates = this.runner3D.update(delta, this.playerSpeed);
+                if (reachedGates) {
+                    this.handleAnswer(this.runner3D.currentLane);
+                }
+
+                requestAnimationFrame((t) => this.loop(t));
+            }
+
+            gameOver() {
+                this.isPlaying = false;
+
+                document.getElementById('final-dist').innerText = `${Math.floor(this.distance)}m`;
+                document.getElementById('final-score').innerText = this.score;
+                document.getElementById('final-correct').innerText = `${this.correctCount} / ${this.totalQuestions}`;
+                
+                const accuracy = this.totalQuestions > 0 ? Math.round((this.correctCount / this.totalQuestions) * 100) : 0;
+                document.getElementById('final-accuracy').innerText = `${accuracy}%`;
+
+                document.getElementById('gameover-modal').classList.remove('hidden');
+            }
+        }
+
+        // Initialize Game on Window Load
+        window.onload = () => {
+            new MathRunnerGame();
+        };
+    </script>
+</body>
+</html>
